@@ -15,7 +15,7 @@ def get_narrow_collision(points1:list, points2:list, position1:glm.vec3, positio
     contact_plane_point = get_contact_plane_point(polytope, face)
     manifold = get_contact_manifold(contact_plane_point, normal, points1, points2)
     # fallback if manifold fails to generate
-    if True: return glm.normalize(normal), distance, calculate_contact_point(points1, points2, polytope, face, normal) # get_contact_plane_point(polytope, face)
+    if True: return glm.normalize(normal), distance, [calculate_contact_point(points1, points2, polytope, face, normal)] # get_contact_plane_point(polytope, face)
     return glm.normalize(normal), distance, manifold[0] # change phsyics handler to accept multiple collision points
 
 def get_contact_plane_point(polytope, face) -> glm.vec3:

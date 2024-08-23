@@ -2,6 +2,8 @@ import glm
 from random import randint
 
 from scripts.collisions.line_intersections import line_line_intersect, line_poly_intersect
+from scripts.collisions.graham_scan import graham_scan
+from scripts.collisions.sutherland_hodgman import sutherland_hodgman
 
 # sutherland hodgman clipping algorithm
 def get_contact_manifold(contact_plane_point:glm.vec3, contact_plane_normal:glm.vec3, points1:list[glm.vec3], points2:list[glm.vec3]) -> list[glm.vec3]:
@@ -23,17 +25,18 @@ def get_contact_manifold(contact_plane_point:glm.vec3, contact_plane_normal:glm.
     points2, u2, v2 = points_to_2d(contact_plane_point, contact_plane_normal, points2) #TODO precalc orthogonal basis for 2d conversion
     
     # convert arbitrary points to polygon
+    if len(points1) > 2: points1 = graham_scan(points1)
+    if len(points2) > 2: points2 = graham_scan(points2)
+    
+    # run clipping algorithms
     manifold = []
-    if len(points1) == 2:
-        if len(points2) == 2:
-            manifold = line_line_intersect(points1, points2)
-        else:
-            manifold = line_poly_intersect(points1, points2)
+    is_line1, is_line2 = len(points1) == 2, len(points2) == 2
+    if is_line1 and is_line2: manifold = line_line_intersect(points1, points2)
     else: 
-        if len(points2) == 2:
-            manifold = line_poly_intersect(points2, points1)
-        else: 
-            manifold = [] #TODO poly1 - poly2 sutherland-hodgman intersection
+        if is_line1: manifold = line_poly_intersect(points1, points2)
+        elif is_line2: manifold = line_poly_intersect(points2, points1)
+        else: manifold = sutherland_hodgman(points1, points2)
+        
     # fall back if manifold fails to develope
     if len(manifold) == 0: return []
     # convert inertsection algorithm output to 3d
