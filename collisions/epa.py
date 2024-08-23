@@ -15,9 +15,9 @@ def get_epa_from_gjk(points1:list, points2:list, polytope:list) -> tuple:
         nearest_normal, nearest_distance, nearest_face = get_nearest(polytope, faces, normals)
         new_point = get_support_point(points1, points2, nearest_normal)
         # tests new point distance
-        if glm.length(new_point) - nearest_distance < 0 or new_point in polytope:
+        if glm.length(new_point[0]) - nearest_distance < 0 or new_point in polytope:
             # find contact points
-            return glm.normalize(nearest_normal), nearest_distance, polytope, nearest_face
+            return nearest_normal, nearest_distance, polytope, nearest_face
         polytope.append(new_point) # add support point to polytope
         faces, normals = get_new_faces_and_normals(faces, normals, polytope) # find new faces on polytope
         
@@ -26,7 +26,7 @@ def get_nearest(polytope:list, faces:list, normals:list) -> int:
     """returns the normal and distance of nearest face"""
     nearest, nearest_distance, nearest_face = None, 1e10, None
     for i, face in enumerate(faces):
-        if (distance := abs(glm.dot(polytope[face[0]], normals[i]))) < nearest_distance: nearest, nearest_distance, nearest_face = normals[i], distance, face
+        if (distance := abs(glm.dot(polytope[face[0]][0], normals[i]))) < nearest_distance: nearest, nearest_distance, nearest_face = normals[i], distance, face
     return nearest, nearest_distance, nearest_face
 
 def get_new_faces_and_normals(faces:list, normals:list, polytope:list) -> tuple:
@@ -36,8 +36,8 @@ def get_new_faces_and_normals(faces:list, normals:list, polytope:list) -> tuple:
     """
     sp_index, visible_indexes = len(polytope) - 1, []
     for i, normal in enumerate(normals):
-        avg_point = (polytope[faces[i][0]] + polytope[faces[i][1]] + polytope[faces[i][2]]) / 3
-        if glm.dot(normal, polytope[sp_index]) < 1e-5 or glm.dot(polytope[sp_index] - avg_point, normal) < 1e-5: continue
+        avg_point = (polytope[faces[i][0]][0] + polytope[faces[i][1]][0] + polytope[faces[i][2]][0]) / 3
+        if glm.dot(normal, polytope[sp_index][0]) < 1e-5 or glm.dot(polytope[sp_index][0] - avg_point, normal) < 1e-5: continue
         visible_indexes.append(i)
     visible_indexes.sort() # sort for removing
     # finds new edges
@@ -64,7 +64,7 @@ def get_face_edges(face:list) -> list:
 
 def calculate_polytope_normal(face:list, polytope:list, reference_center:glm.vec3) -> glm.vec3:
     """calculates the given normal from 3 points on the polytope"""
-    one, two, three = polytope[face[0]], polytope[face[1]], polytope[face[2]]
+    one, two, three = polytope[face[0]][0], polytope[face[1]][0], polytope[face[2]][0]
     normal = glm.cross(one-two, one-three)
     # calculate average point
     if glm.dot((one + two + three)/3 - reference_center, normal) < 0: normal *= -1

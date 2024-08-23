@@ -1,20 +1,32 @@
 import glm
 from scripts.collisions.epa import get_epa_from_gjk
 from scripts.collisions.gjk import get_gjk_collision
-from scripts.collisions.math_functions import get_furthest_point
+from scripts.collisions.contact_manifold import get_contact_manifold
 
 # main collision function
 def get_narrow_collision(points1:list, points2:list, position1:glm.vec3, position2:glm.vec3) -> tuple:
     """returns the normalized normal vector of the collision and the distance"""
+    # determine if narrow collision has occured
     have_collided, simplex = get_gjk_collision(points1, points2, position1, position2)
     if not have_collided: return glm.vec3(0, 0, 0), 0, glm.vec3(0, 0, 0)
+    # get polytope from narrow collision
     normal, distance, polytope, face = get_epa_from_gjk(points1, points2, simplex)
-    return normal, distance, calculate_contact_point(points1, points2, polytope, face, normal)
+    # get manifold from collision
+    contact_plane_point = get_contact_plane_point(polytope, face)
+    manifold = get_contact_manifold(contact_plane_point, normal, points1, points2)
+    # fallback if manifold fails to generate
+    if True: return glm.normalize(normal), distance, calculate_contact_point(points1, points2, polytope, face, normal) # get_contact_plane_point(polytope, face)
+    return glm.normalize(normal), distance, manifold[0] # change phsyics handler to accept multiple collision points
+
+def get_contact_plane_point(polytope, face) -> glm.vec3:
+    point2 = (polytope[face[0]][2] + polytope[face[1]][2] + polytope[face[2]][2]) / 3
+    point1 = (polytope[face[0]][1] + polytope[face[1]][1] + polytope[face[2]][1]) / 3
+    return (point1 + point2) / 2
 
 def calculate_contact_point(points1, points2, polytope, face, normal):
     """Calculates the contact points on the original objects."""
     # Get the vertices of the nearest face
-    a, b, c = polytope[face[0]], polytope[face[1]], polytope[face[2]]
+    a, b, c = polytope[face[0]][0], polytope[face[1]][0], polytope[face[2]][0]
 
     # Calculate the barycentric coordinates with respect to the origin
     def signed_volume(p1, p2, p3):
@@ -55,3 +67,10 @@ def calculate_contact_point(points1, points2, polytope, face, normal):
     contact_point2 = u * support2_a + v * support2_b + w * support2_c
 
     return contact_point1 # Optionally, you can return contact_point2 as well
+
+def get_furthest_point(points:list, direction_vector:glm.vec3) -> glm.vec3: # may need to be normalized
+    """finds furthest point in given direction"""
+    best_point, best_dot = glm.vec3(0, 0, 0), -1e6
+    for point in points: 
+        if (dot := glm.dot(point, direction_vector)) > best_dot: best_point, best_dot = point, dot
+    return best_point

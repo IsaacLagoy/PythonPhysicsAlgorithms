@@ -8,12 +8,12 @@ def get_gjk_collision(points1:list, points2:list, position1:glm.vec3, position2:
     direction_vector = position1 - position2
     simplex = [get_support_point(points1, points2, direction_vector)]
     # points direction vector to the origin
-    direction_vector = -simplex[0]
+    direction_vector = -simplex[0][0]
     # main gjk loop
     for _ in range(iterations):
         # gets support point and checks if its across the origin
         test_point = get_support_point(points1, points2, direction_vector)
-        if glm.dot(test_point, direction_vector) < 0: return False, simplex
+        if glm.dot(test_point[0], direction_vector) < 0: return False, simplex
         # if successful add point and handle simplex
         simplex.append(test_point)
         check, direction_vector, simplex = handle_simplex(simplex)
@@ -31,20 +31,20 @@ def handle_simplex(simplex:list) -> tuple:
         
 def handle_simplex_line(simplex:list) -> tuple:
     """returns perpendicular vector to simplex line"""
-    vector_ab = simplex[1] - simplex[0]
-    return False, triple_product(vector_ab, -simplex[0], vector_ab), simplex
+    vector_ab = simplex[1][0] - simplex[0][0]
+    return False, triple_product(vector_ab, -simplex[0][0], vector_ab), simplex
 
 def handle_simplex_triangle(simplex:list) -> tuple:
     """returns triangle normal vector pointed towards the origin"""
-    directional_vector = glm.cross(simplex[1] - simplex[0], simplex[2] - simplex[0])
-    return False, -directional_vector if glm.dot(directional_vector, -simplex[0]) < 0 else directional_vector, simplex
+    directional_vector = glm.cross(simplex[1][0] - simplex[0][0], simplex[2][0] - simplex[0][0])
+    return False, -directional_vector if glm.dot(directional_vector, -simplex[0][0]) < 0 else directional_vector, simplex
 
 def handle_simplex_tetra(simplex:list) -> tuple:
     """runs collision test and removes point if false"""
-    vec_da = simplex[3] - simplex[0]
-    vec_db = simplex[3] - simplex[1]
-    vec_dc = simplex[3] - simplex[2]
-    vec_do = -simplex[3]
+    vec_da = simplex[3][0] - simplex[0][0]
+    vec_db = simplex[3][0] - simplex[1][0]
+    vec_dc = simplex[3][0] - simplex[2][0]
+    vec_do = -simplex[3][0]
     
     epsilon = -1e-4
     
