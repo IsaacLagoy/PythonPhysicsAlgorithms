@@ -8,17 +8,26 @@ def get_narrow_collision(points1:list, points2:list, position1:glm.vec3, positio
     """returns the normalized normal vector of the collision and the distance"""
     # determine if narrow collision has occured
     have_collided, simplex = get_gjk_collision(points1, points2, position1, position2)
-    if not have_collided: return glm.vec3(0, 0, 0), 0, glm.vec3(0, 0, 0)
+    if not have_collided: return glm.vec3(0, 0, 0), 0, glm.vec3(0, 0, 0), glm.vec3(0, 0, 0)
     # get polytope from narrow collision
     normal, distance, polytope, face = get_epa_from_gjk(points1, points2, simplex)
     # get manifold from collision
     contact_plane_point = get_contact_plane_point(polytope, face)
     manifold = get_contact_manifold(contact_plane_point, normal, points1, points2)
     # fallback if manifold fails to generate
-    if True: return glm.normalize(normal), distance, [calculate_contact_point(points1, points2, polytope, face, normal)] # get_contact_plane_point(polytope, face)
-    return glm.normalize(normal), distance, manifold[0] # change phsyics handler to accept multiple collision points
+    #if len(manifold) == 0: return glm.normalize(normal), distance, [calculate_contact_point(points1, points2, polytope, face, normal)], contact_plane_point # get_contact_plane_point(polytope, face)
+    return glm.normalize(normal), distance, manifold, contact_plane_point # change phsyics handler to accept multiple collision points
 
 def get_contact_plane_point(polytope, face) -> glm.vec3:
+    """gets the most likely point for the contact plane"""
+    n1, n2 = glm.cross(polytope[face[2]][2] - polytope[face[1]][2], polytope[face[2]][2] - polytope[face[0]][2]), glm.cross(polytope[face[2]][1] - polytope[face[1]][1], polytope[face[2]][1] - polytope[face[0]][1])
+    d = glm.cross(n1, n2)
+    if (deno := glm.dot(n1, d)) == 0: return estimate_contact_plane_point(polytope, face) # fall back if planes dont intersect
+    r0 = polytope[face[2]][2]
+    t = -glm.dot(n1, r0 - polytope[face[2]][1]) / deno
+    return r0 + t * d
+    
+def estimate_contact_plane_point(polytope, face) -> glm.vec3:
     point2 = (polytope[face[0]][2] + polytope[face[1]][2] + polytope[face[2]][2]) / 3
     point1 = (polytope[face[0]][1] + polytope[face[1]][1] + polytope[face[2]][1]) / 3
     return (point1 + point2) / 2

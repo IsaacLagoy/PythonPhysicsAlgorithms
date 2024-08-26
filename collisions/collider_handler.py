@@ -34,7 +34,7 @@ class ColliderHandler():
 
 class Collider():
     """parent class for collider"""
-    def __init__(self, collider_handler:ColliderHandler, data:list, prefab, static = True, elasticity = 0.5) -> None:
+    def __init__(self, collider_handler:ColliderHandler, data:list, prefab, static = True, elasticity = 0.2) -> None:
         """stores data for collider"""
         self.collider_handler = collider_handler
         # data

@@ -9,8 +9,12 @@ from scripts.collisions.sutherland_hodgman import sutherland_hodgman
 def get_contact_manifold(contact_plane_point:glm.vec3, contact_plane_normal:glm.vec3, points1:list[glm.vec3], points2:list[glm.vec3]) -> list[glm.vec3]:
     """computes the contact manifold for a collision between two nearby polyhedra"""
     # gets near points to be considered for clipping
-    points1 = get_near_points(contact_plane_point, contact_plane_normal, points1)
-    points2 = get_near_points(contact_plane_point, contact_plane_normal, points2)
+    points1 = get_past_points(contact_plane_point, -contact_plane_normal, points1)
+    points2 = get_past_points(contact_plane_point, contact_plane_normal, points2)
+    
+    if len(points1) == 0 or len(points2) == 0: 
+        # print('no points found', randint(100, 999))
+        return []
     
     # project vertices onto the 2d plane
     points1 = project_points(contact_plane_point, contact_plane_normal, points1)
@@ -43,7 +47,14 @@ def get_contact_manifold(contact_plane_point:glm.vec3, contact_plane_normal:glm.
     return points_to_3d(u1, v1, contact_plane_point, manifold)
 
 # plane functions
-def get_near_points(contact_plane_point:glm.vec3, contact_plane_normal:glm.vec3, points:list[glm.vec3], epsilon:float = 1e-3) -> list[glm.vec3]:
+def get_past_points(contact_plane_point:glm.vec3, contact_plane_normal:glm.vec3, points:list[glm.vec3], epsilon:float = 1e-7) -> list[glm.vec3]:
+    """returns the points on the wrong side of the contact plane"""
+    past_points = []
+    for point in points:
+        if glm.dot(contact_plane_normal, contact_plane_point - point) > -epsilon: past_points.append(point)
+    return past_points
+    
+def get_near_points(contact_plane_point:glm.vec3, contact_plane_normal:glm.vec3, points:list[glm.vec3], epsilon:float = 1e-5) -> list[glm.vec3]:
     """get the points closest to the contact plane"""
     distances = {}
     closest_distance = 1e10
