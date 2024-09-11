@@ -1,18 +1,71 @@
 import glm
+import numpy as np
+from scripts.collisions.collider import Collider
+from scripts.collisions.broad.bounding_volume_heirarchy import BoundingVolumeHeirarchy
+from scripts.collisions.narrow.narrow_collisions import get_narrow_collision
+from scripts.physics.impulse import calculate_collisions
+from scripts.transform_handler import TransformHandler
 
 class ColliderHandler():
     """controls import and interaction between colliders"""
     def __init__(self, scene) -> None:
         """stores imports and bodies"""
         self.scene = scene
-        # Prefabs dictionary
-        self.prefabs = self.scene.project.prefab_handler.prefabs
+        # vbos dictionary
+        self.vbos = self.scene.vao_handler.vbo_handler.vbos
         self.colliders = []
+        # transforms
+        self.transform_handler = TransformHandler(self.scene)
+        self.to_update = set([])
         
-    def add_collider(self, data:list=None, prefab=None, static = True):
+    def add(self, position:glm.vec3=None, scale:glm.vec3=None, rotation:glm.vec3=None, vbo:str='cube', static = True, elasticity:float=0.1, kinetic_friction:float=0.4, static_friction:float=0.8):
         """adds new collider with corresponding object"""
-        self.colliders.append(Collider(self, data, prefab, static))
+        self.colliders.append(Collider(self, position, scale, rotation, vbo, static, elasticity, kinetic_friction, static_friction))
         return self.colliders[-1]
+    
+    def resolve_collisions(self):
+        # get broad collisions
+        self.bvh.build_tree() # TODO replace with better update system
+        
+        needs_narrow = {}
+        for collider in self.colliders:
+            broad_collisions = self.bvh.get_collided(collider)
+            if len(broad_collisions) < 1: continue
+            needs_narrow[collider] = set(broad_collisions)
+        
+        # updates vertcies
+        self.to_update.intersection_update(needs_narrow.keys())
+        self.update_vertices_transform()
+        
+        already_collided = {collider : set([]) for collider in self.colliders}
+            
+        # narrow collisions
+        for collider1, possible_colliders in needs_narrow.items():
+            for collider2 in possible_colliders:
+                # check if already collided
+                if collider2 in already_collided[collider1] or collider1 in already_collided[collider2]: continue
+                
+                normal, distance, contact_points = get_narrow_collision(collider1.vertices, collider2.vertices, collider1.position, collider2.position)
+                if distance == 0: continue # continue if no collision
+                # log collision
+                already_collided[collider1].add(collider2)
+                already_collided[collider2].add(collider1)
+                
+                # immediately resolve penetration
+                collection1 = collider1.collection
+                collection2 = collider2.collection
+                
+                if collider1.static: 
+                    collection2.position += normal * distance
+                else:
+                    if collider2.static: 
+                        collection1.position += normal * -distance
+                    else:
+                        collection1.position += normal * 0.5 * -distance
+                        collection2.position += normal * 0.5 * distance
+                #for both physics bodies
+                if not (collection1.physics_body or collection2.physics_body): continue
+                calculate_collisions(normal, collider1, collider2, collection1.physics_body, collection2.physics_body, contact_points, collection1.get_inverse_inertia(), collection2.get_inverse_inertia(), collection1.position, collection2.position)
     
     def get_model_matrix(self, data:list) -> glm.mat4:
         """gets projection matrix from object data"""
@@ -26,111 +79,52 @@ class ColliderHandler():
         model_matrix = glm.scale(model_matrix, data[3:6]) # scale
         return model_matrix
     
-    def get_real_vertex_locations(self, prefab) -> list:
+    def get_real_vertex_locations(self, vbo) -> list:
         """gets the in-world locations of the collider vertices"""
         model_matrix = self.get_model_matrix()
-        #return [glm.vec3(model_matrix * vertex) for vertex in self.collider_handler.prefabs[self.prefab].unique_points]
-        return [glm.vec3((new := glm.mul(model_matrix, (*vertex, 1)))[0], new[1], new[2]) for vertex in self.prefabs[prefab].unique_points]
+        return [glm.vec3((new := glm.mul(model_matrix, (*vertex, 1)))[0], new[1], new[2]) for vertex in self.vbos[vbo].unique_points]
 
-class Collider():
-    """parent class for collider"""
-    def __init__(self, collider_handler:ColliderHandler, data:list, prefab, static = True, elasticity = 0.2) -> None:
-        """stores data for collider"""
-        self.collider_handler = collider_handler
-        # data
-        if data: self.data = data # pos [:3], scale [3:6], rot[6:]
-        else: self.data = [0, 0, 0, 1, 1, 1, 0, 0, 0]
-        self.prefab = prefab
-        # geometry
-        self.vertices = self.get_real_vertex_locations() # vertices must be created before everything else
-        self.dimensions = self.get_dimensions()
-        self.geometric_center = self.get_geometric_center()
-        # physics
-        self.base_volume = 8
-        self.static = static
-        self.elasticity = elasticity
-        self.inertia_tensor = self.get_inertia_tensor()
+    def construct_bvh(self):
+        self.bvh = BoundingVolumeHeirarchy(self)
+    
         
-        self.static_friction = 0.8
-        self.kinetic_friction = 0.4
+    def update_vertices_transform(self):
+        """
+        Updates all necessary vertices using the transform handler
+        """
+            
+        batch_data = []
+        vert_rows = []
         
-    def set_data(self, data:list) -> None:
-        oldData = self.data[:]
-        self.data = data
-        # updates vertices from new data
-        self.vertices = self.get_real_vertex_locations()
-        self.geometric_center = self.get_geometric_center()
-        if oldData[3:6] != self.data[3:6]: 
-            self.dimensions = self.get_dimensions() # scale changed
-            if oldData[6:] != self.data[6:]: self.inertia_tensor = self.get_inertia_tensor() # rotation changed
-    
-    def set_position(self, position) -> None:
-        """sets position of collider, takes glm and list"""
-        self.set_data([*position] + self.data[3:])
+        for collider in self.to_update:
+            # stack vertcies with center and dimensions
+            vertex_data = np.copy(collider.unique_points)
+            rows = vertex_data.shape[0]
+            
+            # adds transformation to point
+            model_data = np.array([*collider.position, *collider.rotation, *collider.scale])
+            collider_data = np.zeros(shape=(rows, 12), dtype="f4")
+            
+            collider_data[:,:3] = vertex_data
+            collider_data[:,3:] = model_data
+            
+            batch_data.append(collider_data)
+            vert_rows.append(rows)
         
-    def set_scale(self, scale) -> None:
-        """sets scale of collider, takes glm and list"""
-        self.set_data(self.data[:3] + [*scale] + self.data[6:])
+        # Combine all meshes into a single array
+        if len(batch_data) < 1:
+            self.to_update = set([])
+            return
+            
+        batch_data = np.vstack(batch_data, dtype="f4")
+        data = self.transform_handler.transform('model_transform', batch_data)
         
-    def set_rotation(self, rotation) -> None:
-        """sets rotation of collider, takes glm and list"""
-        self.set_data(self.data[:6] + [*rotation])
-        
-    def get_model_matrix(self) -> glm.mat4:
-        """gets projection matrix from object data"""
-        # create blank matrix
-        model_matrix = glm.mat4()
-        # translate, rotate, and scale
-        model_matrix = glm.translate(model_matrix, self.data[:3]) # translation
-        model_matrix = glm.rotate(model_matrix, self.data[6], glm.vec3(-1, 0, 0)) # x rotation
-        model_matrix = glm.rotate(model_matrix, self.data[7], glm.vec3(0, -1, 0)) # y rotation
-        model_matrix = glm.rotate(model_matrix, self.data[8], glm.vec3(0, 0, -1)) # z rotation
-        model_matrix = glm.scale(model_matrix, self.data[3:6]) # scale
-        return model_matrix
-    
-    def get_real_vertex_locations(self) -> list:
-        """gets the in-world locations of the collider vertices"""
-        model_matrix = self.get_model_matrix()
-        return [glm.vec3((new := glm.mul(model_matrix, (*vertex, 1)))[0], new[1], new[2]) for vertex in self.collider_handler.prefabs[self.prefab].unique_points]
-    
-    def get_geometric_center(self) -> glm.vec3: # not being used at the moment
-        """returns the center of a convex polytope"""
-        minimums, maximums = [1e10, 1e10, 1e10], [-1e10, -1e10, -1e10]
-        for point in self.vertices:
-            for i in range(3):
-                if point[i] > maximums[i]: maximums[i] = point[i]
-                if point[i] < minimums[i]: minimums[i] = point[i]
-        center = glm.vec3([(maximums[i] + minimums[i])/2 for i in range(3)])
-        return center
-    
-    def get_inertia_tensor(self, mass:int=1) -> glm.mat3x3:
-        inertia_tensor = glm.mat3x3(0.0)
-        # sum points in geometric space
-        for vertex in self.vertices:
-            r = vertex - self.geometric_center
-            inertia_tensor[0][0] += r.y * r.y + r.z * r.z
-            inertia_tensor[1][1] += r.x * r.x + r.z * r.z
-            inertia_tensor[2][2] += r.x * r.x + r.y * r.y
-            inertia_tensor[0][1] -= r.x * r.y
-            inertia_tensor[0][2] -= r.x * r.z
-            inertia_tensor[1][2] -= r.y * r.z
-        inertia_tensor[1][0] = inertia_tensor[0][1]
-        inertia_tensor[2][0] = inertia_tensor[0][2]
-        inertia_tensor[2][1] = inertia_tensor[1][2]
-
-        return mass * inertia_tensor / len(self.vertices)
-    
-    def get_radius_to_point(self, point:glm.vec3) -> float:
-        return point - self.geometric_center
-    
-    def get_dimensions(self) -> glm.vec3:
-        minimums, maximums = [1e10, 1e10, 1e10], [-1e10, -1e10, -1e10]
-        for point in self.collider_handler.prefabs[self.prefab].unique_points:
-            for i in range(3):
-                if point[i] * self.data[3 + i] > maximums[i]: maximums[i] = point[i] * self.data[3 + i]
-                if point[i] * self.data[3 + i] < minimums[i]: minimums[i] = point[i] * self.data[3 + i]
-        dim = glm.vec3(*[(maximums[i] - minimums[i]) for i in range(3)])
-        return dim
-    
-    def get_volume(self):
-        return self.base_volume * self.data[3] * self.data[4] * self.data[5]
+        for collider, count in zip(self.to_update, vert_rows):
+            # get vertices
+            vertices = []
+            for _ in range(count):
+                vertices.append(glm.vec3(data[:3]))
+                data = data[3:]
+            collider.vertices = vertices
+            
+        self.to_update = set([])
